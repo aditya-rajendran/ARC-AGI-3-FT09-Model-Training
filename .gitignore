@@ -1,0 +1,21 @@
+# Game cache and recordings
+.ft09_cache/
+
+# Jupyter / Python
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# API keys - never commit
+api_key.txt
+key.txt
+.env
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
