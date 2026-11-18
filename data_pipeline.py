@@ -24,12 +24,12 @@ RENDER_SCALE = 8
 # Appended only on a retry. It restates the reply format and does not add game rules.
 FORMAT_REMINDER = (
     "Your previous reply could not be parsed or the request timed out. "
-    "Reply again in the requested format, with each field on its own line:\n"
-    "REASONING: <short explanation>\n"
+    "Reply again in plain text, with one field per line, in this exact order:\n"
+    "REASONING: <brief explanation of why you chose this click>\n"
     "ACTION: ACTION6 x y\n"
-    "MEMORY: <optional finding or hypothesis>\n"
-    "Always put ACTION on line 2. Omit MEMORY if there is nothing new to remember. "
-    "Use plain text with no bullets or code fences."
+    "MEMORY: <short summary of useful findings, failed tests, and open hypotheses>\n"
+    "Omit MEMORY if there is nothing useful to update. "
+    "Use no bullets, blank lines, or code fences."
 )
 
 SCHEMA = pa.schema(
