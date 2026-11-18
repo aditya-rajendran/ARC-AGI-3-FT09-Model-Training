@@ -1,5 +1,6 @@
-# Game cache and recordings
+# Game cache and SDK scorecards
 .ft09_cache/
+recordings/
 
 # Jupyter / Python
 .ipynb_checkpoints/
