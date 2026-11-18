@@ -245,6 +245,7 @@ def run_attempt(
         grid_before = _copy_frame(obs)
         history_before = list(history)
         prompt = prompt_for(obs, history_before)
+        text_grid = grid_text_fn(grid_before)
 
         move = None
         tokens_spent = 0
@@ -254,6 +255,7 @@ def run_attempt(
             try:
                 parsed, tokens = ask(
                     image,
+                    text_grid,
                     history_before,
                     prompt,
                     memory_note,
@@ -269,7 +271,6 @@ def run_attempt(
             if try_index < MAX_PARSE_RETRIES:
                 retries += 1
 
-        text_grid = grid_text_fn(grid_before)
         if move is None:
             record = make_record(
                 level=level_number,
