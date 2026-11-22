@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 # Decisions from 16 Nov 2026: five attempts, these temperatures, Lisa-Pro rows.
 ATTEMPT_TEMPERATURES = (0.2, 0.4, 0.6, 0.8, 1.0)
 MAX_PARSE_RETRIES = 2
-SOURCE = "lisa-pro"
+SOURCE = "llm-api"
 RENDER_SCALE = 8
 
 # Appended only on a retry. It restates the reply format and does not add game rules.
