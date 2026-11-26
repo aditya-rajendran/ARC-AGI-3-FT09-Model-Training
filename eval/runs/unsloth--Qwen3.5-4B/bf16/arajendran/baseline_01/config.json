@@ -1,0 +1,77 @@
+{
+  "model": {
+    "model_id": "unsloth/Qwen3.5-4B",
+    "connection": "local-unsloth",
+    "model_revision": "3764fa359b9082ea5a1e4a5e3ac3aaf6e9671636",
+    "resolved_model_id": "unsloth/Qwen3.5-4B",
+    "load_in_4bit": false,
+    "precision": "bf16",
+    "compute_dtype": "torch.bfloat16",
+    "gpu": "NVIDIA A100-SXM4-80GB MIG 1g.10gb",
+    "thinking": false,
+    "max_new_tokens": 1024,
+    "max_seq_length": 8192,
+    "top_p": 0.8,
+    "top_k": 20,
+    "repetition_penalty": 1.0
+  },
+  "prompt": "You are playing FT09. Your goal is to solve the current level.\nThe rules are hidden. Work them out from the board and the effects of your clicks.\n\nUse the current screenshot, the text grid, the previous click's outcome, and\nany saved memory.\nWhen you are unsure, choose a click that tests a specific idea. Say what visible\nchange you expect and where, and save that prediction in MEMORY.\n\nEach turn also includes a text grid of the same board. It has 31 lines of\n32 hexadecimal characters. The character in column c of line r is the colour\nindex at grid position x = 2 \u00d7 c, y = 2 \u00d7 r (both counted from 0). The last\nline, \"bar: n/64\", counts the cells of colour 12 in the bottom row.\n\nOn the next turn, check the predicted spot in the screenshot. The changed-cell\ncount tells you how much changed. Use the screenshot to check what changed and\nwhere.  If the expected change did not happen, record the failed test in MEMORY\nand try a different test. If you expected the click to solve the level and it\ndid not, reconsider the rule behind that prediction.\n\nChoose exactly one click per turn. ACTION6 x y clicks a position on the 64 \u00d7 64\ngame grid. Use integers from 0 to 63, even when the screenshot is enlarged.\nThe origin is at the top left. x increases to the right and y downward.\n\nKeep earlier findings that still matter. Label untested ideas as hypotheses.\nOmit MEMORY if there is nothing useful to update.\nUse no bullets, blank lines, or code fences.\n\nReply in plain text, with one field per line, in this exact order:\nREASONING: <brief explanation of why you chose this click>\nACTION: ACTION6 x y\nMEMORY: <short summary of useful findings, failed tests, and open hypotheses>\n",
+  "render_scale": 8,
+  "baseline_actions": [
+    43,
+    12,
+    23,
+    28,
+    65,
+    37
+  ],
+  "max_parse_retries": 2,
+  "code_sha256": {
+    "data_pipeline.py": "6a423ad53c1eea80c31b987d054a5422ff0b78b80d6437d80d1d827ca776ede6",
+    "ft09_models.py": "f7973b4ab085b4fa6ab9f63f5b7f4e3b145b371c2883e0333a5cf66edb2e41b1",
+    "ft09_shared.py": "22480b12cf31e853b80c6f2ae57a2214a14eeb5d9317a78f33aaee744fbbf05f"
+  },
+  "game_files_sha256": {
+    "ft09/0d8bbf25/ft09.py": "aa5b54f48a29da9f276c3df0dc04de728002f523384ab868c85d56d819cd0783",
+    "ft09/0d8bbf25/metadata.json": "81ebeedd8bd8241b26660bb6be4155afcbb4f0db4d48ef8b0472f23525310f81"
+  },
+  "input_fields": [
+    "current_image",
+    "text_grid",
+    "previous_click",
+    "model_memory"
+  ],
+  "phase": "baseline",
+  "levels": [
+    1,
+    2
+  ],
+  "attempts": 5,
+  "temperature": 1.0,
+  "step_limits": {
+    "1": 65,
+    "2": 18
+  },
+  "seed": 1234,
+  "session": "jovyan",
+  "created_utc": "2026-11-26T18:34:40.895216+00:00",
+  "environment": {
+    "python": "3.12.14 (main, Sep  2 2026, 23:27:36) [GCC 15.3.0]",
+    "platform": "Linux-6.8.0-149-generic-x86_64-with-glibc2.39",
+    "packages": {
+      "torch": "2.14.1",
+      "transformers": "5.17.0",
+      "unsloth": "2026.11.12",
+      "unsloth_zoo": "2026.11.12",
+      "accelerate": "1.16.0",
+      "bitsandbytes": "0.50.2",
+      "arc-agi": "0.9.9",
+      "numpy": "2.5.3",
+      "pyarrow": "25.0.0",
+      "pillow": "12.3.0"
+    },
+    "cuda": "13.0",
+    "gpu": "NVIDIA A100-SXM4-80GB MIG 1g.10gb",
+    "gpu_memory_bytes": 10200547328
+  }
+}
