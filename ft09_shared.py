@@ -79,11 +79,12 @@ def get_arcade():
 GAME_PROMPT = 'You are playing FT09. Your goal is to solve the current level.\nThe rules are hidden. Work them out from the board and the effects of your clicks.\n\nUse the current screenshot, the text grid, the previous click\'s outcome, and\nany saved memory.\nWhen you are unsure, choose a click that tests a specific idea. Say what visible\nchange you expect and where, and save that prediction in MEMORY.\n\nEach turn also includes a text grid of the same board. It has 31 lines of\n32 hexadecimal characters. The character in column c of line r is the colour\nindex at grid position x = 2 × c, y = 2 × r (both counted from 0). The last\nline, "bar: n/64", counts the cells of colour 12 in the bottom row.\n\nOn the next turn, check the predicted spot in the screenshot. The changed-cell\ncount tells you how much changed. Use the screenshot to check what changed and\nwhere.  If the expected change did not happen, record the failed test in MEMORY\nand try a different test. If you expected the click to solve the level and it\ndid not, reconsider the rule behind that prediction.\n\nChoose exactly one click per turn. ACTION6 x y clicks a position on the 64 × 64\ngame grid. Use integers from 0 to 63, even when the screenshot is enlarged.\nThe origin is at the top left. x increases to the right and y downward.\n\nKeep earlier findings that still matter. Label untested ideas as hypotheses.\nOmit MEMORY if there is nothing useful to update.\nUse no bullets, blank lines, or code fences.\n\nReply in plain text, with one field per line, in this exact order:\nREASONING: <brief explanation of why you chose this click>\nACTION: ACTION6 x y\nMEMORY: <short summary of useful findings, failed tests, and open hypotheses>\n'
 
 def parse_answer(text):
+    text = re.sub(r"(?:\r?\n[ \t]*){2,}", "\n", (text or "").strip())
     match = re.fullmatch(
         r"REASONING:[ \t]*([^\r\n]+)\r?\n"
         r"ACTION:[ \t]*ACTION6[ \t]+([0-9]{1,2})[ \t]+([0-9]{1,2})[ \t]*"
         r"(?:\r?\nMEMORY:[ \t]*([^\r\n]+))?",
-        (text or "").strip(),
+        text,
         flags=re.IGNORECASE,
     )
     if match is None:

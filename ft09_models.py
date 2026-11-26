@@ -19,7 +19,7 @@ def strip_thinking(reply):
         reply = re.split(r"</think(?:ing)?>", reply, flags=re.I)[-1]
     elif re.search(r"<think(?:ing)?>", reply, flags=re.I):
         return ""  # No final answer was produced.
-    return re.sub(r"(?:<\|im_end\|>|<\|endoftext\|>)+\s*$", "", reply).strip()
+    return re.sub(r"(?:\s*(?:<\|im_end\|>|<\|endoftext\|>))+\s*$", "", reply).strip()
 
 
 class _Backend:
