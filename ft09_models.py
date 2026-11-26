@@ -7,9 +7,19 @@ import base64
 import gc
 import io
 import json
+import re
 import time
 
 from ft09_shared import build_turn_text, parse_answer
+
+
+def strip_thinking(reply):
+    """Keep the final answer; retain the unchanged reply separately in the log."""
+    if re.search(r"</think(?:ing)?>", reply, flags=re.I):
+        reply = re.split(r"</think(?:ing)?>", reply, flags=re.I)[-1]
+    elif re.search(r"<think(?:ing)?>", reply, flags=re.I):
+        return ""  # No final answer was produced.
+    return re.sub(r"(?:<\|im_end\|>|<\|endoftext\|>)+\s*$", "", reply).strip()
 
 
 class _Backend:
@@ -38,18 +48,20 @@ class _Backend:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def _finish(self, reply, tokens, text, prompt, memory_note, temperature, started, truncated=False):
-        move = parse_answer(reply)
+        parsed_reply = strip_thinking(reply)
+        move = None if truncated else parse_answer(parsed_reply)
         self._log({
             "status": "ok" if move is not None else "invalid_reply",
             "user_text": text, "system_prompt": prompt,
             "memory_in": memory_note, "reply": reply,
+            "raw_reply": reply, "parsed_reply": parsed_reply,
             "temperature": temperature, "completion_tokens": tokens,
             "truncated": truncated, "elapsed_seconds": time.monotonic() - started,
         })
         if move is None:
             print("Invalid model reply:", repr(reply), flush=True)
         if truncated:
-            print("The reply reached the output-token limit; check for truncation.", flush=True)
+            print("Reply truncated at the output-token limit; no click executed.", flush=True)
         return move, int(tokens or 0)
 
 
@@ -116,33 +128,40 @@ class OpenAIBackend(_Backend):
 
 
 class LocalQwenBackend(_Backend):
-    """Qwen3.5 on one CUDA GPU, with the same interface as the API backend."""
-    def __init__(self, model_name="Qwen/Qwen3.5-2B", *, max_new_tokens=512):
+    """Qwen3.5 through Unsloth on one personal-session CUDA GPU."""
+    def __init__(self, model_name="unsloth/Qwen3.5-4B", *, load_in_4bit=False,
+                 max_new_tokens=512, max_seq_length=8192):
+        # Unsloth must patch the libraries before Transformers is imported.
+        from unsloth import FastVisionModel
         import torch
-        import transformers
-        from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
         super().__init__(model_name, max_new_tokens)
         if not torch.cuda.is_available():
             raise RuntimeError("No CUDA GPU detected. Start JupyterHub with a GPU.")
+        self.load_in_4bit = bool(load_in_4bit)
+        if not self.load_in_4bit and not torch.cuda.is_bf16_supported():
+            raise RuntimeError("BF16 is unavailable on this GPU. Choose a BF16-capable GPU or explicitly select 4-bit.")
         self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         self.gpu = torch.cuda.get_device_name(0)
-        self.torch_version = torch.__version__
-        self.transformers_version = transformers.__version__
-        print(f"Loading {model_name} on {self.gpu} ...", flush=True)
-        self.processor = AutoProcessor.from_pretrained(model_name)
-        self.model = Qwen3_5ForConditionalGeneration.from_pretrained(
-            model_name, dtype=self.dtype, device_map={"": 0}, attn_implementation="sdpa",
+        self.max_seq_length = max_seq_length
+        print(f"Loading {model_name} on {self.gpu} ({'4-bit' if load_in_4bit else 'BF16'}) ...", flush=True)
+        self.model, self.processor = FastVisionModel.from_pretrained(
+            model_name=model_name, load_in_4bit=self.load_in_4bit,
+            dtype=self.dtype, device_map={"": 0},
+            use_gradient_checkpointing="unsloth",
         )
+        FastVisionModel.for_inference(self.model)
         self.model.eval()
 
     def info(self):
         return {
-            "model_id": self.model_name, "connection": "local-transformers",
+            "model_id": self.model_name, "connection": "local-unsloth",
             "model_revision": getattr(self.model.config, "_commit_hash", None),
-            "dtype": str(self.dtype), "gpu": self.gpu,
-            "torch_version": self.torch_version,
-            "transformers_version": self.transformers_version,
+            "resolved_model_id": getattr(self.model.config, "_name_or_path", None),
+            "load_in_4bit": self.load_in_4bit,
+            "precision": "4bit" if self.load_in_4bit else "bf16",
+            "compute_dtype": str(self.dtype), "gpu": self.gpu,
             "thinking": False, "max_new_tokens": self.max_new_tokens,
+            "max_seq_length": self.max_seq_length,
             "top_p": 0.8, "top_k": 20, "repetition_penalty": 1.0,
         }
 
@@ -152,25 +171,32 @@ class LocalQwenBackend(_Backend):
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": [
-                {"type": "image", "image": image.convert("RGB")},
-                {"type": "text", "text": text},
+                {"type": "image"}, {"type": "text", "text": text},
             ]},
         ]
         started = time.monotonic()
         try:
-            inputs = self.processor.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True,
-                return_dict=True, return_tensors="pt", enable_thinking=False,
+            input_text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+            )
+            inputs = self.processor(
+                image.convert("RGB"), input_text,
+                add_special_tokens=False, return_tensors="pt",
             ).to(self.model.device)
             input_length = inputs["input_ids"].shape[1]
+            if input_length + self.max_new_tokens > self.max_seq_length:
+                raise ValueError("Input plus output budget exceeds max_seq_length; start a new run with a larger context.")
             with torch.inference_mode():
                 output = self.model.generate(
                     **inputs, max_new_tokens=self.max_new_tokens,
                     do_sample=True, temperature=temperature,
-                    top_p=0.8, top_k=20, repetition_penalty=1.0,
+                    top_p=0.8, top_k=20, repetition_penalty=1.0, use_cache=True,
                 )
             new_tokens = output[0, input_length:]
-            reply = self.processor.decode(new_tokens, skip_special_tokens=True).strip()
+            reply = self.processor.decode(new_tokens, skip_special_tokens=False)
+            eos = self.model.generation_config.eos_token_id
+            eos_ids = set(eos if isinstance(eos, (list, tuple)) else [eos])
+            ended = bool(len(new_tokens)) and int(new_tokens[-1]) in eos_ids
         except Exception as exc:
             self._log({
                 "status": "error", "user_text": text, "system_prompt": prompt,
@@ -181,7 +207,7 @@ class LocalQwenBackend(_Backend):
             raise
         return self._finish(
             reply, len(new_tokens), text, prompt, memory_note, temperature, started,
-            truncated=len(new_tokens) >= self.max_new_tokens,
+            truncated=len(new_tokens) >= self.max_new_tokens and not ended,
         )
 
     def close(self):

@@ -571,18 +571,78 @@ def new_run_dir(purpose, model_name):
     return output
 
 
-def save_run_config(output_dir, backend, prompt=GAME_PROMPT, **settings):
-    """Save reproducibility settings. Backend information never includes keys."""
-    path = Path(output_dir) / "config.json"
-    info = {
-        "model": backend.info(), "prompt": prompt,
-        "render_scale": RENDER_SCALE,
-        "baseline_actions": get_baseline_actions(),
-        "max_parse_retries": 2,
-        **settings,
+def environment_info():
+    import importlib.metadata
+    import platform
+    import sys
+    packages = {}
+    for name in ("torch", "transformers", "unsloth", "unsloth_zoo", "accelerate",
+                 "bitsandbytes", "arc-agi", "numpy", "pyarrow", "pillow"):
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
+    info = {"python": sys.version, "platform": platform.platform(), "packages": packages}
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        info.update(cuda=torch.version.cuda, gpu=torch.cuda.get_device_name(0),
+                    gpu_memory_bytes=torch.cuda.get_device_properties(0).total_memory)
+    return info
+
+
+def evaluation_run_dir(model_name, load_in_4bit, session, run_name):
+    """Stable personal batch folder, reusable after restarting the kernel."""
+    def safe(value):
+        part = re.sub(r"[^A-Za-z0-9_.-]+", "--", str(value)).strip(".")
+        if not part:
+            raise ValueError("Use a nonempty session/run name.")
+        return part
+    folder = PROJECT_DIR / "eval" / "runs" / safe(model_name)
+    folder = folder / ("4bit" if load_in_4bit else "bf16") / safe(session) / safe(run_name)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def save_run_config(output_dir, backend, prompt=GAME_PROMPT, *, resume=False, **settings):
+    """Freeze settings and the prompt; refuse mismatched settings on resume."""
+    import hashlib
+    folder = Path(output_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "config.json"
+    hashes = {
+        name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
+        for name in ("data_pipeline.py", "ft09_models.py", "ft09_shared.py")
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
+    info = json.loads(json.dumps({
+        "model": backend.info(), "prompt": prompt, "render_scale": RENDER_SCALE,
+        "baseline_actions": get_baseline_actions(), "max_parse_retries": 2,
+        "code_sha256": hashes,
+        "game_files_sha256": {
+            str(p.relative_to(ENVIRONMENTS_DIR)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(ENVIRONMENTS_DIR.rglob("*"))
+            if p.is_file() and p.suffix in {".py", ".json"}
+        },
+        "input_fields": ["current_image", "text_grid", "previous_click", "model_memory"],
+        **settings,
+    }))
+    environment = environment_info()
+    if path.exists():
+        if not resume:
+            raise FileExistsError(f"{path} exists. Use resume=True or a different run name.")
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        comparable = {k: v for k, v in previous.items() if k not in {"created_utc", "environment"}}
+        if comparable != info:
+            raise ValueError("Saved settings/code differ. Restore them or use a new RUN_NAME.")
+        if previous["environment"]["packages"] != environment["packages"]:
+            raise ValueError("Package versions changed. Use the saved versions or a new RUN_NAME.")
+        if (folder / "system_prompt.txt").read_text(encoding="utf-8") != prompt:
+            raise ValueError("Saved system_prompt.txt differs from the current prompt.")
+        return path
+    if any(folder.glob("*.parquet")) or (folder / "requests.jsonl").exists():
+        raise FileExistsError("This folder has logs without a config. Use a new RUN_NAME.")
+    info.update(created_utc=datetime.now(timezone.utc).isoformat(), environment=environment)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
+    (folder / "system_prompt.txt").write_text(prompt, encoding="utf-8")
     return path
 
 
@@ -607,15 +667,49 @@ def _save_records_atomic(records, output):
     temporary.replace(output)
 
 
-def run_level(
-    backend, level, output_dir, *, n_attempts=1, temperature=0.7,
-    max_steps=None, attempt_start=1, prompt=GAME_PROMPT, show_frames=False,
-):
-    """Run one level with an explicit backend, saving each attempt separately.
+def _request_entries(backend):
+    if backend.log_path is None:
+        return list(backend.request_log)
+    path = Path(backend.log_path)
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
-    Existing files are never overwritten. A fresh board and empty memory are
-    created by data_pipeline.run_attempt for every attempt. The step limit is a
-    decision-turn limit: an invalid turn consumes budget but executes no click.
+
+def _restore_attempt(game, records, level, attempt):
+    """Replay saved actions locally and verify both sides of every transition."""
+    obs = game.reset()
+    history, memory = [], ""
+    for index, row in enumerate(records, 1):
+        if (row["level"], row["attempt"], row["step"]) != (level, attempt, index):
+            raise ValueError("Saved records have inconsistent IDs or step order.")
+        if row["history"] != history or not np.array_equal(row["grid_before"], obs.frame[-1]):
+            raise ValueError(f"Replay differs before step {index}; cannot safely resume.")
+        if row["valid"]:
+            action, x, y = row["action"].split()
+            if action != "ACTION6":
+                raise ValueError("Unexpected saved action.")
+            obs = game.step(int(x), int(y))
+            history.append(
+                f"{row['action']} | changed cells: {row['changed_cells']} "
+                f"| level solved: {'yes' if row['level_solved'] else 'no'}"
+            )
+        if not np.array_equal(row["grid_after"], obs.frame[-1]):
+            raise ValueError(f"Replay differs after step {index}; cannot safely resume.")
+        memory = row["memory"] or ""
+    return obs, history, memory
+
+
+def run_level(
+    backend, level, output_dir, *, n_attempts=1, temperature=1.0,
+    max_steps=None, attempt_start=1, prompt=GAME_PROMPT, show_frames=False,
+    resume=False, seed=1234,
+):
+    """Save each turn. Continue failed batches without losing previous results.
+
+    Resume restores board/history/memory by offline replay, without model calls.
+    The GPU sampling stream after an interruption is not guaranteed identical.
+    Completed attempts are skipped. Decision limits include invalid turns.
     """
     if not isinstance(level, int) or not 1 <= level <= 6:
         raise ValueError("Choose a level from 1 to 6.")
@@ -628,31 +722,48 @@ def run_level(
         raise ValueError("max_steps must be a positive integer or None.")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    attempt_ids = range(attempt_start, attempt_start + n_attempts)
-    outputs = {
-        attempt: output_dir / f"ft09_level_{level}_attempt_{attempt:03d}.parquet"
-        for attempt in attempt_ids
-    }
+    outputs = {attempt: output_dir / f"ft09_level_{level}_attempt_{attempt:03d}.parquet"
+               for attempt in range(attempt_start, attempt_start + n_attempts)}
     for output in outputs.values():
-        if output.exists() or output.with_suffix(".summary.json").exists():
-            raise FileExistsError(f"Run already exists: {output}. Use a new run directory or attempt_start.")
-    game = FT09SingleLevel(level)
+        if not resume and (output.exists() or output.with_suffix(".summary.json").exists()):
+            raise FileExistsError(f"Run already exists: {output}. Use resume=True or a new folder.")
+    _request_entries(backend)  # Validate the persistent request log before playing.
     combined = []
     for attempt, output in outputs.items():
-        records = []
-        backend.set_context(level=level, attempt=attempt)
-        request_start = len(backend.request_log)
+        summary_path = output.with_suffix(".summary.json")
+        old_summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
+        records = pq.read_table(output, schema=SCHEMA).to_pylist() if output.exists() else []
+        if len(records) > limit:
+            raise ValueError("Saved attempt exceeds the configured turn limit.")
+        if resume and old_summary.get("stop_reason") in {"solved", "turn_limit", "game_ended"}:
+            print(f"Level {level} | attempt {attempt}: already finished; skipped.", flush=True)
+            combined.extend(records)
+            continue
+        import random
+        import sys
+        attempt_seed = seed + 1000 * level + attempt
+        random.seed(attempt_seed)
+        np.random.seed(attempt_seed)
+        if "torch" in sys.modules:
+            sys.modules["torch"].manual_seed(attempt_seed)
         started = time.monotonic()
         error = None
+        game = None
+        tries = Counter(r.get("turn") for r in _request_entries(backend)
+                        if r.get("level") == level and r.get("attempt") == attempt)
+
+        def ask(*args):
+            turn = len(records) + 1
+            tries[turn] += 1
+            backend.set_context(level=level, attempt=attempt, turn=turn, request_try=tries[turn])
+            return backend.ask(*args)
 
         def on_step(event):
             row = event["record"]
             _save_records_atomic(records, output)
-            print(
-                f"Level {level} | attempt {attempt} | turn {row['step']}/{limit} | "
-                f"{row['action'] or 'invalid reply'} | changed {row['changed_cells']} | "
-                f"solved {row['level_solved']}", flush=True,
-            )
+            print(f"Level {level} | attempt {attempt} | turn {row['step']}/{limit} | "
+                  f"{row['action'] or 'invalid reply'} | changed {row['changed_cells']} | "
+                  f"solved {row['level_solved']}", flush=True)
             if row["reasoning"]:
                 print(row["reasoning"], flush=True)
             if show_frames:
@@ -670,23 +781,34 @@ def run_level(
                 plt.close(fig)
 
         try:
-            run_attempt(
-                reset=game.reset, render=lambda: game.render(scale=RENDER_SCALE),
-                step=game.step, done=game.done, grid_text_fn=grid_to_text,
-                ask=backend.ask, prompt_for=lambda state, history: prompt,
-                level_number=level, attempt=attempt, temperature=temperature,
-                max_steps=limit, records=records, on_step=on_step,
-                source="llm-api",
-            )
-        except (Exception, KeyboardInterrupt) as exc:
+            game = FT09SingleLevel(level)
+            if records:
+                obs, history, memory = _restore_attempt(game, records, level, attempt)
+                reset = lambda: obs
+            else:
+                history, memory, reset = [], "", game.reset
+            if not records or (not records[-1]["level_solved"] and not game.done()):
+                run_attempt(
+                    reset=reset, render=lambda: game.render(scale=RENDER_SCALE),
+                    step=game.step, done=game.done, grid_text_fn=grid_to_text,
+                    ask=ask, prompt_for=lambda state, history: prompt,
+                    level_number=level, attempt=attempt, temperature=temperature,
+                    max_steps=limit, records=records, on_step=on_step, source="llm-api",
+                    start_step=len(records) + 1, initial_history=history, initial_memory=memory,
+                )
+        except KeyboardInterrupt as exc:
             error = exc
-            raise
+        except Exception as exc:
+            error = exc
+            print(f"Level {level} | attempt {attempt}: technical failure ({type(exc).__name__}). "
+                  "Saved partial results; continuing with the next attempt.", flush=True)
         finally:
             _save_records_atomic(records, output)
-            requests = backend.request_log[request_start:]
+            requests = [r for r in _request_entries(backend)
+                        if r.get("level") == level and r.get("attempt") == attempt]
             solved = any(row["level_solved"] for row in records)
             if error is not None:
-                stop_reason = "interrupted" if isinstance(error, KeyboardInterrupt) else "technical_error"
+                stop_reason = "interrupted" if isinstance(error, KeyboardInterrupt) else "technical_failure"
             elif solved:
                 stop_reason = "solved"
             elif records and records[-1]["state"] in {"GAME_OVER", "WIN"}:
@@ -695,22 +817,24 @@ def run_level(
                 stop_reason = "turn_limit"
             summary = {
                 "model": backend.model_name, "level": level, "attempt": attempt,
-                "solved": solved, "decision_turns": len(records),
+                "seed": attempt_seed, "solved": solved, "decision_turns": len(records),
                 "executed_clicks": sum(row["valid"] for row in records),
                 "invalid_turns": sum(not row["valid"] for row in records),
                 "invalid_replies": sum(r["status"] == "invalid_reply" for r in requests),
                 "timeouts": sum(r["status"] == "timeout" for r in requests),
+                "timeout_mode": "local inference" if backend.info()["connection"].startswith("local") else "API",
                 "requests": len(requests),
                 "generated_tokens_known": sum(r.get("completion_tokens") or 0 for r in requests),
                 "token_usage_complete": all(r.get("completion_tokens") is not None for r in requests),
-                "temperature": temperature, "turn_limit": limit,
-                "stop_reason": stop_reason,
-                "elapsed_seconds": round(time.monotonic() - started, 3),
-                "error": str(error) if error else "",
+                "temperature": temperature, "turn_limit": limit, "stop_reason": stop_reason,
+                "elapsed_seconds": round(old_summary.get("elapsed_seconds", 0) + time.monotonic() - started, 3),
+                "error": type(error).__name__ if error is not None else "",
                 "records_file": output.name,
             }
-            output.with_suffix(".summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         combined.extend(records)
+        if isinstance(error, KeyboardInterrupt):
+            raise error
     return combined
 
 
@@ -748,7 +872,7 @@ def summarise_evaluation(output_dir):
             ),
             "invalid_replies": sum(r["invalid_replies"] for r in group),
             "timeouts": sum(r["timeouts"] for r in group),
-            "technical_failures": sum(r["stop_reason"] in {"technical_error", "interrupted"} for r in group),
+            "technical_failures": sum(r["stop_reason"] in {"technical_error", "technical_failure", "interrupted"} for r in group),
         })
     with (output_dir / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(aggregate[0]))

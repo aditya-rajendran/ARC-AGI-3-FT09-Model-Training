@@ -220,6 +220,9 @@ def run_attempt(
     records: list[dict],
     on_step=None,
     source: str = SOURCE,
+    start_step: int = 1,
+    initial_history=None,
+    initial_memory: str = "",
 ) -> list[str]:
     """Play one attempt and append one record per turn.
 
@@ -235,12 +238,12 @@ def run_attempt(
     if obs is None:
         raise RuntimeError("FT09 reset returned no observation.")
 
-    history: list[str] = []
-    memory_note = ""
+    history: list[str] = list(initial_history or [])
+    memory_note = initial_memory
     initial_completed = int(obs.levels_completed)
     applied: list[str] = []
 
-    for step_index in range(1, max_steps + 1):
+    for step_index in range(start_step, max_steps + 1):
         image = render()
         grid_before = _copy_frame(obs)
         history_before = list(history)

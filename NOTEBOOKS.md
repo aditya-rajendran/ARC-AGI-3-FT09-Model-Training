@@ -2,14 +2,14 @@
 
 | Notebook | Purpose | Output |
 | --- | --- | --- |
-| `01_prompt_experiments.ipynb` | Test prompts with LISA or another compatible API | `experiments/` |
-| `02_data_collection.ipynb` | Record human/LLM-assisted attempts and export the dataset | `dataset/` |
-| `03_baseline_evaluation.ipynb` | Evaluate the local VLM before fine-tuning | `evaluation/` |
+| `01_prompt_experiments.ipynb` | Prompt experiments through a compatible API | `experiments/` |
+| `02_data_collection.ipynb` | Human/LLM-assisted recording, dataset merge and ZIP export | `dataset/` |
+| `03_baseline_evaluation.ipynb` | Local Unsloth VLM evaluation before fine-tuning | `eval/runs/` |
 
-Shared functions are in `ft09_shared.py`, model connections in `ft09_models.py`, and recording/Parquet code in `data_pipeline.py`. The original notebook keeps the earlier saved runs.
+Shared functions: `ft09_shared.py`. Model connections: `ft09_models.py`. Recording/Parquet: `data_pipeline.py`. The original notebook keeps earlier runs.
 
-Run the Dependencies cell first. Restart the kernel if packages were installed or upgraded, then continue below it. Local VLM runs require a GPU. After editing shared Python files, restart the kernel.
+Install dependencies using the notebook cell, then restart the kernel. Evaluation requires a university CUDA GPU. Default: Qwen3.5-4B, BF16; precision is configurable. Start with the Level 1 three-turn check in two sessions. Once verified, freeze the setup/tag `eval-v1`, set `PHASE = "baseline"` and select assigned levels. Official batches use five attempts at temperature 1.0 and full per-level limits. Level 6 is separate.
 
-Start evaluation with the three-turn connection check. For the full baseline, choose the final model, levels 1–5, five attempts per level and `MAX_STEPS = None`. Keep settings fixed for the before/after comparison. Level 6 stays separate and out of training.
+Keep the same run name to resume. Finished attempts are skipped; partial attempts replay saved clicks and recover memory. Settings, code hashes and package versions are checked. Results include the saved prompt, config/environment, raw replies, Parquet records and CSV summaries. Keep the complete folder.
 
-Use unused attempt IDs for new collection runs. Merge and ZIP export are at the end of the collection notebook; raw model runs and evaluation results are excluded. Evaluation folders contain the configuration, turn records, request logs and result summaries.
+After changing shared files, restart the kernel. Use unused attempt IDs for data collection. Evaluation and raw model logs are excluded from the training export.
