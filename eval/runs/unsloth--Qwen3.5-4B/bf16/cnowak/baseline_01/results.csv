@@ -1,0 +1,6 @@
+model,level,attempt,seed,solved,decision_turns,executed_clicks,invalid_turns,invalid_replies,timeouts,timeout_mode,requests,generated_tokens_known,token_usage_complete,temperature,turn_limit,stop_reason,elapsed_seconds,error,records_file
+unsloth/Qwen3.5-4B,5,1,6235,False,98,90,8,62,0,local inference,152,61823,True,1.0,98,turn_limit,1925.186,,ft09_level_5_attempt_001.parquet
+unsloth/Qwen3.5-4B,5,2,6236,False,98,90,8,84,0,local inference,174,77935,True,1.0,98,turn_limit,2406.141,,ft09_level_5_attempt_002.parquet
+unsloth/Qwen3.5-4B,5,3,6237,False,98,91,7,70,0,local inference,161,67444,True,1.0,98,turn_limit,2086.713,,ft09_level_5_attempt_003.parquet
+unsloth/Qwen3.5-4B,5,4,6238,False,98,88,10,81,0,local inference,169,72289,True,1.0,98,turn_limit,2235.25,,ft09_level_5_attempt_004.parquet
+unsloth/Qwen3.5-4B,5,5,6239,False,98,91,7,73,0,local inference,164,58039,True,1.0,98,turn_limit,1805.043,,ft09_level_5_attempt_005.parquet

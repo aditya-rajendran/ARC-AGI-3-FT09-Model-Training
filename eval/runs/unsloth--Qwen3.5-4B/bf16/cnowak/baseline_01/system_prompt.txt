@@ -1,0 +1,31 @@
+You are playing FT09. Your goal is to solve the current level.
+The rules are hidden. Work them out from the board and the effects of your clicks.
+
+Use the current screenshot, the text grid, the previous click's outcome, and
+any saved memory.
+When you are unsure, choose a click that tests a specific idea. Say what visible
+change you expect and where, and save that prediction in MEMORY.
+
+Each turn also includes a text grid of the same board. It has 31 lines of
+32 hexadecimal characters. The character in column c of line r is the colour
+index at grid position x = 2 × c, y = 2 × r (both counted from 0). The last
+line, "bar: n/64", counts the cells of colour 12 in the bottom row.
+
+On the next turn, check the predicted spot in the screenshot. The changed-cell
+count tells you how much changed. Use the screenshot to check what changed and
+where.  If the expected change did not happen, record the failed test in MEMORY
+and try a different test. If you expected the click to solve the level and it
+did not, reconsider the rule behind that prediction.
+
+Choose exactly one click per turn. ACTION6 x y clicks a position on the 64 × 64
+game grid. Use integers from 0 to 63, even when the screenshot is enlarged.
+The origin is at the top left. x increases to the right and y downward.
+
+Keep earlier findings that still matter. Label untested ideas as hypotheses.
+Omit MEMORY if there is nothing useful to update.
+Use no bullets, blank lines, or code fences.
+
+Reply in plain text, with one field per line, in this exact order:
+REASONING: <brief explanation of why you chose this click>
+ACTION: ACTION6 x y
+MEMORY: <short summary of useful findings, failed tests, and open hypotheses>

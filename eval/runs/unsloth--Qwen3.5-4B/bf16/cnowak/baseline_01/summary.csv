@@ -1,0 +1,2 @@
+level,attempts,solved,success_rate,average_clicks_when_solved,average_generated_tokens,invalid_replies,timeouts,technical_failures
+5,5,0,0.0,,67506.0,370,0,0
