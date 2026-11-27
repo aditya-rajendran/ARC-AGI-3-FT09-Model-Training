@@ -1,0 +1,22 @@
+{
+  "model": "unsloth/Qwen3.5-4B",
+  "level": 3,
+  "attempt": 3,
+  "seed": 4237,
+  "solved": false,
+  "decision_turns": 35,
+  "executed_clicks": 31,
+  "invalid_turns": 4,
+  "invalid_replies": 30,
+  "timeouts": 0,
+  "timeout_mode": "local inference",
+  "requests": 61,
+  "generated_tokens_known": 27606,
+  "token_usage_complete": true,
+  "temperature": 1.0,
+  "turn_limit": 35,
+  "stop_reason": "turn_limit",
+  "elapsed_seconds": 850.713,
+  "error": "",
+  "records_file": "ft09_level_3_attempt_003.parquet"
+}
